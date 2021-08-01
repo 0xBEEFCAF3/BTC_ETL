@@ -7,7 +7,6 @@ import zmq.asyncio
 import signal
 import struct
 import sys
-import threading
 
 port = 28333
 host = '192.168.1.168'
@@ -27,7 +26,6 @@ class ZMQHandler():
 
     async def handle(self) :
         topic, body, seq = await self.zmqSubSocket.recv_multipart()
-        print('HANDLING THE BIZ')
         sequence = "Unknown"
         if len(seq) == 4:
             sequence = str(struct.unpack('<I', seq)[-1])
