@@ -2,15 +2,23 @@
 import sys
 # import zeroMQ 
 import threading
-import logger
+from mempool import MemPoolEntries
 from rocksclient import RocksDBClient
+import logging
 
 if __name__ == "__main__":   
     if (sys.version_info.major, sys.version_info.minor) < (3, 5):
         print("Only works with Python 3.5 and greater")
         sys.exit(1)
-    lock = threading.Lock()
 
+    logging.basicConfig(level=logging.DEBUG, format='%(relativeCreated)6d %(threadName)s %(message)s')
+
+    lock = threading.Lock()
     rocks = RocksDBClient(lock)
-    rocks.batch_write_mempool_txs([{'txid': '1234'}])
+    mempool = MemPoolEntries(lock, rocks)
+    mempool.start()
+    rocks.print_all_keys()
+
+   
+
     

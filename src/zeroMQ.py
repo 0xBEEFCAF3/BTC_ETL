@@ -24,7 +24,7 @@ class ZMQHandler():
         # self.zmqSubSocket.setsockopt_string(zmq.SUBSCRIBE, "sequence")
         self.zmqSubSocket.connect("tcp://%s:%i" % (host, port))
 
-    async def handle(self) :
+    async def handle(self):
         topic, body, seq = await self.zmqSubSocket.recv_multipart()
         sequence = "Unknown"
         if len(seq) == 4:
@@ -60,6 +60,3 @@ class ZMQHandler():
     def stop(self):
         self.loop.stop()
         self.zmqContext.destroy()
-
-daemon = ZMQHandler()
-daemon.start()

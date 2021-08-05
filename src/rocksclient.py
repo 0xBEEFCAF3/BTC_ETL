@@ -1,6 +1,7 @@
 import json
 import rocksdb
 import threading
+import decimal
 
 class MergeOp(rocksdb.interfaces.AssociativeMergeOperator):
     def merge(self, key, existing_tx, conf_ts):
@@ -13,6 +14,11 @@ class MergeOp(rocksdb.interfaces.AssociativeMergeOperator):
     def name(self):
         return b'MergeOp'
 
+class DecimalEncoder(json.JSONEncoder):
+    def default(self, o):
+        if isinstance(o, decimal.Decimal):
+            return str(o)
+        return super(DecimalEncoder, self).default(o)
 class RocksDBClient():
     def __init__(self, lock):
         opts = rocksdb.Options()
@@ -31,17 +37,15 @@ class RocksDBClient():
         self.db =  rocksdb.DB("test.db", opts)
         self.lock = lock
         
-    def batch_write_mempool_txs(self, txs):
-        self.lock.acquire()
+    def write_mempool_tx(self, tx):
+        # self.lock.acquire()
         try:
-            batch = rocksdb.WriteBatch()
-            for tx in txs:
-                batch.put(
-                    bytes(tx['txid'], encoding='utf-8'),
-                    bytes(json.dumps(tx), encoding='utf-8'))
-            self.db.write(batch)
+            self.db.put(
+                bytes(tx['txid'], encoding='utf-8'),
+                bytes(json.dumps(tx, cls=DecimalEncoder), encoding='utf-8'))
         finally:
-            self.lock.release()
+            pass
+            # self.lock.release()
 
     def update_tx_conf_time(self, txid, conf_ts):
         self.lock.acquire() 
@@ -50,4 +54,7 @@ class RocksDBClient():
         finally:
             self.lock.release()
 
-
+    def print_all_keys(self):
+        it = self.db.iterkeys()
+        it.seek_to_first()
+        print(list(it))
