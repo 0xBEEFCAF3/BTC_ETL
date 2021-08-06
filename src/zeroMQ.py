@@ -11,8 +11,6 @@ import sys
 import os
 from bitcoinrpc.authproxy import AuthServiceProxy, JSONRPCException
 
-port = 28333
-host = '192.168.1.168'
 class ZMQHandler():
     def __init__(self, logging, rocks):
         if ('RPC_USER' not in os.environ
@@ -20,6 +18,10 @@ class ZMQHandler():
         or 'RPC_HOST' not in os.environ
         or 'RPC_PORT' not in os.environ) :
             raise Exception('Need to specify RPC_USER and RPC_PASSWORD, RPC_HOST, RPC_PORT environs')
+
+        if 'ZMQ_PORT' not in os.environ or 'ZMQ_HOST' not in os.environ :
+            raise Exception('Need to specify ZMQ_PORT and ZMQ_HOST environs')
+
         self.rpc_connection = AuthServiceProxy("http://%s:%s@%s:%s" %
             (os.environ['RPC_USER'], os.environ['RPC_PASSWORD'],  os.environ['RPC_HOST'], os.environ['RPC_PORT']))
         self.loop = asyncio.get_event_loop()
@@ -32,7 +34,7 @@ class ZMQHandler():
         # self.zmqSubSocket.setsockopt_string(zmq.SUBSCRIBE, "rawblock")
         # self.zmqSubSocket.setsockopt_string(zmq.SUBSCRIBE, "sequence")
         self.zmqSubSocket.setsockopt_string(zmq.SUBSCRIBE, "rawtx")
-        self.zmqSubSocket.connect("tcp://%s:%i" % (host, port))
+        self.zmqSubSocket.connect("tcp://%s:%s" % (os.environ['ZMQ_HOST'] , os.environ['ZMQ_PORT']))
         self.logging = logging
         self.rocks = rocks
 
