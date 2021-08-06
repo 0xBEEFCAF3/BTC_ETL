@@ -1,6 +1,6 @@
 #!/usr/bin/env python3 
 import sys
-# import zeroMQ 
+from zeroMQ import ZMQHandler 
 import threading
 from mempool import MemPoolEntries
 from rocksclient import RocksDBClient
@@ -15,9 +15,11 @@ if __name__ == "__main__":
 
     lock = threading.Lock()
     rocks = RocksDBClient(lock)
-    mempool = MemPoolEntries(lock, rocks)
-    mempool.start()
-    rocks.print_all_keys()
+    zeroMQ = ZMQHandler(logging, rocks);
+    zeroMQ.start()
+    # mempool = MemPoolEntries(lock, rocks)
+    # mempool.start()
+    # rocks.print_all_keys()
 
    
 

@@ -38,19 +38,17 @@ class RocksDBClient():
         self.lock = lock
         
     def write_mempool_tx(self, tx):
-        # self.lock.acquire()
         try:
             self.db.put(
                 bytes(tx['txid'], encoding='utf-8'),
                 bytes(json.dumps(tx, cls=DecimalEncoder), encoding='utf-8'))
         finally:
             pass
-            # self.lock.release()
 
     def update_tx_conf_time(self, txid, conf_ts):
         self.lock.acquire() 
         try:
-            self.db.merge(bytes(txid, encoding='utf-8'), conf_ts)
+            self.db.merge(bytes(txid, encoding='utf-8'), bytes(str(conf_ts), encoding='utf-8'))
         finally:
             self.lock.release()
 

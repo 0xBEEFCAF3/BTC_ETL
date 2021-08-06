@@ -3,6 +3,7 @@ import os
 import asyncio
 import signal
 import time
+import logging
 
 class MemPoolEntries():
     def __init__(self, lock, rocksdb):
@@ -35,12 +36,12 @@ class MemPoolEntries():
         assert(input_value > output_value)
         return input_value - output_value
 
-    def handle(self):
+    async def handle(self):
         # Grab mempool entries, verbosity false
         ## https://chainquery.com/bitcoin-cli/getrawmempool
         mempool = self.rpc_connection.getrawmempool(False)
         for txid in mempool:
-            # try:
+            try:
                 if txid in self.txcache:
                     continue
                 if len(self.txcache) >= self.MAX_CACHE_SIZE:
@@ -52,19 +53,17 @@ class MemPoolEntries():
                 fees = self.getTransactionFees(serialized_tx)
                 fee_rate = fees / serialized_tx['size']
                 tx = (({**{ 'feerate': float(fee_rate),'fee': float(fees), 'mempooldate': int(time.time())}, **serialized_tx}))
-                print(tx)
                 self.rocksDbClient.write_mempool_tx(tx)
-            # except:
-            #     pass 
-        # return;
-        # await asyncio.sleep(10)
-        # asyncio.ensure_future(self.handle())
+            except:
+                pass 
+        await asyncio.sleep(20)
+        asyncio.ensure_future(self.handle())
 
     def start(self):
         self.loop.add_signal_handler(signal.SIGINT, self.stop)
-        self.handle()
-        # self.loop.create_task(self.handle())
-        # self.loop.run_forever()
+        # self.handle()
+        self.loop.create_task(self.handle())
+        self.loop.run_forever()
 
     def stop(self):
         self.loop.stop()
