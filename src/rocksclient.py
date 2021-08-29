@@ -23,7 +23,7 @@ class DecimalEncoder(json.JSONEncoder):
         return super(DecimalEncoder, self).default(o)
 
 class RocksDBClient():
-    def __init__(self, lock):
+    def __init__(self, lock, logging):
         opts = rocksdb.Options()
         opts.create_if_missing = True
         opts.max_open_files = 300000
@@ -39,6 +39,7 @@ class RocksDBClient():
 
         self.db =  rocksdb.DB("test.db", opts)
         self.lock = lock
+        self.logging = logging
         
     def get_tx(self, txid):
         tx = None
@@ -46,8 +47,8 @@ class RocksDBClient():
         try:
             tx = self.db.get(bytes(txid, encoding='utf-8'))
         except Exception as e:
-            print('[rocks]: Failed to get tx')
-            print(e)
+            self.logging.info('[rocks]: Failed to get tx')
+            self.logging.info(e)
         finally:
            self.lock.release() 
         return tx
@@ -59,8 +60,8 @@ class RocksDBClient():
                 bytes(tx['txid'], encoding='utf-8'),
                 bytes(json.dumps(tx, cls=DecimalEncoder), encoding='utf-8'))
         except Exception as e:
-            print('[rocks]: Create mempool entry')
-            print(e)
+            self.logging.info('[rocks]: Create mempool entry')
+            self.logging.info(e)
         finally:
            self.lock.release() 
 
@@ -75,8 +76,8 @@ class RocksDBClient():
                 bytes(txid, encoding='utf-8'),
                 bytes(json.dumps(tx, cls=DecimalEncoder), encoding='utf-8')) 
         except Exception as e:
-            print('[rocks]: Could not perform merge')
-            print(e)
+            self.logging.info('[rocks]: Could not perform merge')
+            self.logging.info(e)
         finally:
             self.lock.release()
 
