@@ -22,7 +22,6 @@ if __name__ == "__main__":
     ## Set up threads
     # mempoolState.get_resources();
     # thread_pool.append(threading.Thread(target=mempoolState.start))
-    # thread_pool.append(threading.Thread(target=mempool.start))
     # thread_pool.append(threading.Thread(target=zeroMQ.start))
     # for t in thread_pool:
     #     t.start()
