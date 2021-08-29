@@ -29,7 +29,6 @@ if __name__ == "__main__":
 
     # for index, t in enumerate(thread_pool):
     #     t.join()
-    rocks.print_all_keys()
     
 
 
