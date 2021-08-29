@@ -5,11 +5,13 @@ import decimal
 
 class MergeOp(rocksdb.interfaces.AssociativeMergeOperator):
     def merge(self, key, existing_tx, conf_ts):
-        if existing_tx:
+        if existing_tx != None:
             tx = json.loads(existing_tx)
-            tx['conf'] = conf_ts
-            return (True, str(json.dumps(tx)).encode('utf-8'))
-        return (True, tx)
+            # Don't over write a conf time
+            if('conf' not in tx):
+                tx['conf'] = conf_ts
+            return (True, str(json.dumps(tx)).encode('ascii'))
+        return (True, conf_ts)
 
     def name(self):
         return b'MergeOp'
@@ -19,6 +21,7 @@ class DecimalEncoder(json.JSONEncoder):
         if isinstance(o, decimal.Decimal):
             return str(o)
         return super(DecimalEncoder, self).default(o)
+
 class RocksDBClient():
     def __init__(self, lock):
         opts = rocksdb.Options()
@@ -37,19 +40,43 @@ class RocksDBClient():
         self.db =  rocksdb.DB("test.db", opts)
         self.lock = lock
         
+    def get_tx(self, txid):
+        tx = None
+        self.lock.acquire() 
+        try:
+            tx = self.db.get(bytes(txid, encoding='utf-8'))
+        except Exception as e:
+            print('[rocks]: Failed to get tx')
+            print(e)
+        finally:
+           self.lock.release() 
+        return tx
+    
     def write_mempool_tx(self, tx):
         self.lock.acquire() 
         try:
             self.db.put(
                 bytes(tx['txid'], encoding='utf-8'),
                 bytes(json.dumps(tx, cls=DecimalEncoder), encoding='utf-8'))
+        except Exception as e:
+            print('[rocks]: Create mempool entry')
+            print(e)
         finally:
            self.lock.release() 
 
     def update_tx_conf_time(self, txid, conf_ts):
         self.lock.acquire() 
         try:
-            self.db.merge(bytes(txid, encoding='utf-8'), bytes(str(conf_ts), encoding='utf-8'))
+            tx = json.loads(self.db.get(bytes(txid, encoding='utf-8')))
+            if tx == None or 'conf' in tx:
+                return
+            tx['conf'] = conf_ts
+            self.db.put(
+                bytes(txid, encoding='utf-8'),
+                bytes(json.dumps(tx, cls=DecimalEncoder), encoding='utf-8')) 
+        except Exception as e:
+            print('[rocks]: Could not perform merge')
+            print(e)
         finally:
             self.lock.release()
 
@@ -58,4 +85,4 @@ class RocksDBClient():
         it.seek_to_first()
         txs = list(it) 
         print(self.db.get(txs[0]))
-        # print(list(it))
+        # print(  txs)
