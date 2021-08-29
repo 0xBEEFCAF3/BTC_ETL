@@ -1,0 +1,11 @@
+certifi==2021.5.30
+charset-normalizer==2.0.4
+Cython==0.29.24
+idna==3.2
+logger==1.4
+python-bitcoinrpc==1.0
+python-rocksdb==0.7.0
+pyzmq==22.1.0
+requests==2.26.0
+urllib3==1.26.6
+zmq==0.0.0

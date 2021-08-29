@@ -12,7 +12,7 @@ import os
 from bitcoinrpc.authproxy import AuthServiceProxy, JSONRPCException
 
 class ZMQHandler():
-    def __init__(self, logging, rocks):
+    def __init__(self, logging, rocks, mempool):
         if ('RPC_USER' not in os.environ
         or 'RPC_PASSWORD' not in os.environ
         or 'RPC_HOST' not in os.environ
@@ -29,14 +29,12 @@ class ZMQHandler():
 
         self.zmqSubSocket = self.zmqContext.socket(zmq.SUB)
         self.zmqSubSocket.setsockopt(zmq.RCVHWM, 0)
-        # self.zmqSubSocket.setsockopt_string(zmq.SUBSCRIBE, "hashblock")
-        # self.zmqSubSocket.setsockopt_string(zmq.SUBSCRIBE, "hashtx")
-        # self.zmqSubSocket.setsockopt_string(zmq.SUBSCRIBE, "rawblock")
-        # self.zmqSubSocket.setsockopt_string(zmq.SUBSCRIBE, "sequence")
+        self.zmqSubSocket.setsockopt_string(zmq.SUBSCRIBE, "hashblock")
         self.zmqSubSocket.setsockopt_string(zmq.SUBSCRIBE, "rawtx")
         self.zmqSubSocket.connect("tcp://%s:%s" % (os.environ['ZMQ_HOST'] , os.environ['ZMQ_PORT']))
         self.logging = logging
         self.rocks = rocks
+        self.mempool = mempool
 
     async def handle(self):
         self.logging.info('[ZMQ]: Starting to handel zmq topics')
@@ -46,25 +44,22 @@ class ZMQHandler():
         if len(seq) == 4:
             sequence = str(struct.unpack('<I', seq)[-1])
         if topic == b"rawtx":
+            ## Tx entering mempool
             self.logging.info('[ZMQ]: Recieved Raw TX')
-            serialized_tx = self.rpc_connection.decoderawtransaction(binascii.hexlify(body).decode("utf-8") )
-            self.rocks.update_tx_conf_time(serialized_tx['txid'], int(time.time()))
-            print(serialized_tx)
-        # if topic == b"hashblock":
-        #     print('- HASH BLOCK ('+sequence+') -')
-        #     print(binascii.hexlify(body))
-        # elif topic == b"hashtx":
-        #     print('- HASH TX  ('+sequence+') -')
-        #     print(binascii.hexlify(body))
-        # if topic == b"rawblock":
-        #     print('- RAW BLOCK HEADER ('+sequence+') -')
-        #     print(binascii.hexlify(body[:80]))
+            serialized_tx = self.rpc_connection.decoderawtransaction(binascii.hexlify(body).decode("utf-8"))
+            self.rocks.write_mempool_tx(serialized_tx)
+        if topic == b"hashblock":
+            block_hash = binascii.hexlify(body).decode("utf-8")
+            block = self.rpc_connection.getblock(block_hash)
+            txs = block['tx']
+            for tx in txs:
+                serialized_tx = self.rpc_connection.gettransaction(tx)
+                self.rocks.update_tx_conf_time(serialized_tx['txid'], int(time.time()))
+
         # await asyncio.sleep(2)
         asyncio.ensure_future(self.handle())
 
     def start(self):
-        print('Starting event loop')
-        self.loop.add_signal_handler(signal.SIGINT, self.stop)
         self.loop.create_task(self.handle())
         self.loop.run_forever()
 
