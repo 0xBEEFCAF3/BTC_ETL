@@ -81,9 +81,22 @@ class RocksDBClient():
         finally:
             self.lock.release()
 
+    ## TODO DELETE THESE DEBUGGIN FUNCTIONS
+
     def print_all_keys(self):
         it = self.db.iterkeys()
         it.seek_to_first()
         txs = list(it) 
         print(self.db.get(txs[0]))
         # print(  txs)
+
+    def get_all_conf_keys(self):
+        it = self.db.iterkeys()
+        it.seek_to_first()
+        txs = list(it) 
+        print(len(txs))
+        # for txid in txs:
+        #     tx = json.loads(self.db.get(txid))
+        #     if('conf' in tx):
+        #         print(tx)
+        print(len(list(filter(lambda txid: 'conf' in json.loads(self.db.get(txid)), txs))))

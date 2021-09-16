@@ -5,15 +5,18 @@ import threading
 from rocksclient import RocksDBClient
 from mempoolState import MempoolState
 import logging
+import binascii
 
 if __name__ == "__main__":   
     if (sys.version_info.major, sys.version_info.minor) < (3, 5):
         print("Only works with Python 3.5 and greater")
         sys.exit(1)
+    
     thread_pool = []
-    logging.basicConfig(level=logging.DEBUG, format='%(relativeCreated)6d %(threadName)s %(message)s')
+    logging.basicConfig(level=logging.INFO, format='%(relativeCreated)6d %(threadName)s %(message)s')
     lock = threading.Lock()
     rocks = RocksDBClient(lock, logging)
+
     mempoolState = MempoolState(logging)
     mempoolState.start()
     zeroMQ = ZMQHandler(logging, rocks, mempoolState)

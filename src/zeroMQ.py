@@ -71,8 +71,7 @@ class ZMQHandler():
             print(tx)
             self.rocks.write_mempool_tx(tx)
         except:
-            self.logging.error('[Mempool Entries]: Failed to decode and persist tx %s' % txid)
-            
+            self.logging.error('[Mempool Entries]: Failed to decode and persist tx ')
             return
 
     def getInputValue(self, txid, vout):
@@ -101,19 +100,21 @@ class ZMQHandler():
             sequence = str(struct.unpack('<I', seq)[-1])
         if topic == b"rawtx":
             ## Tx entering mempool
-            self.logging.info('[ZMQ]: Recieved Raw TX')
-            serialized_tx = self.rpc_connection.decoderawtransaction(binascii.hexlify(body).decode("utf-8"))
-            existing_tx = self.rocks.get_tx(serialized_tx['txid'])
-            print('AdDING NEW TX', existing_tx)
-            # if existing_tx != None:
-            self.add_tx(serialized_tx)
+            try:
+                self.logging.info('[ZMQ]: Recieved Raw TX')
+                serialized_tx = self.rpc_connection.decoderawtransaction(binascii.hexlify(body).decode("utf-8"))
+                existing_tx = self.rocks.get_tx(serialized_tx['txid'])
+                if existing_tx == None:
+                    self.add_tx(serialized_tx)
+            except Exception as e:
+                self.logging.info('[ZMQ]: Failed to write mempool entry')
+                self.logging.info(e)
         if topic == b"hashblock":
             block_hash = binascii.hexlify(body).decode("utf-8")
             block = self.rpc_connection.getblock(block_hash)
             # Skip coin base tx
             for tx in block['tx'][1:]:
-                serialized_tx = self.rpc_connection.gettransaction(tx)
-                self.rocks.update_tx_conf_time(serialized_tx['txid'], int(time.time()))
+                self.rocks.update_tx_conf_time(tx, int(time.time()))
             print('======== TEST =========')
             self.rocks.print_all_keys();
         asyncio.ensure_future(self.handle())
