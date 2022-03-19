@@ -3,7 +3,7 @@
 import json
 import os
 import sys
-from mempoolState import BlockStats
+from mempoolState import BlockStatsService
 from bitcoinrpc.authproxy import AuthServiceProxy, JSONRPCException
 
 
@@ -19,7 +19,7 @@ class BlockStatsCollector():
         self.rpc_connection = AuthServiceProxy("http://%s:%s@%s:%s"
                                                % (os.environ['RPC_USER'], os.environ['RPC_PASSWORD'],  os.environ['RPC_HOST'], os.environ['RPC_PORT']))
         self.blocks = []
-        self.blockStatsService = BlockStats(self.rpc_connection)
+        self.blockStatsService = BlockStatsService(self.rpc_connection)
 
     def save(self):
         with open('block_stats_dump.json', 'w') as outfile:
@@ -31,7 +31,6 @@ class BlockStatsCollector():
             self.blocks.append(self.blockStatsService.update(
                 block_height=height))
             height -= 1
-            # Stop only when we get to gensis
             if (height == stop_height):
                 break
         self.save()

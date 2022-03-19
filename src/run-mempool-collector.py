@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import sys
-# from zeroMQ import ZMQHandler
+from zeroMQ import ZMQHandler
 import threading
 from rocksclient import RocksDBClient
 from mempoolState import MempoolState
@@ -22,12 +22,10 @@ if __name__ == "__main__":
     mempoolState = MempoolState(logging)
     zeroMQ = ZMQHandler(logging, rocks, mempoolState)
 
-    mempoolState.get_resources()
     # Set up threads
-    # mempoolState.get_resources();
 
-    # thread_pool.append(threading.Thread(target=mempoolState.start))
-    # thread_pool.append(threading.Thread(target=zeroMQ.start))
+    thread_pool.append(threading.Thread(target=mempoolState.start))
+    thread_pool.append(threading.Thread(target=zeroMQ.start))
     for t in thread_pool:
         t.start()
 
