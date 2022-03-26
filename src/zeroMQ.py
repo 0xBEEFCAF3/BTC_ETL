@@ -10,8 +10,14 @@ import struct
 import sys
 import os
 from bitcoinrpc.authproxy import AuthServiceProxy, JSONRPCException
+from enum import Enum
 
 SATS_PER_BTC = 100000000
+
+
+class OperationMode(Enum):
+    BOOT_UP = 1,
+    STEAD_STATE = 2
 
 
 class ZMQHandler():
@@ -44,24 +50,30 @@ class ZMQHandler():
         # Keep a cache of txs entering and leaving the mempool for providing mempool stats
         self.mempool_txs = []
 
+        self.operation_mode = OperationMode.BOOT_UP
+
     def is_in_cache(self, txId):
-        return len(filter(lambda tx: tx['txid'] == txId, self.mempool_txs)) > 0
+        return len(list(filter(lambda tx: tx['txid'] == txId, self.mempool_txs))) > 0
 
     def average_fee(self):
-        return sum(tx['fee'] for tx in self.mempool_txs) / len(self.mempool_txs)
+        return sum(tx['fee'] for tx in self.mempool_txs) / self.mempool_size()
 
     def average_fee_rate(self):
-        return sum(tx['feerate'] for tx in self.mempool_txs) / len(self.mempool_txs)
+        return sum(tx['feerate'] for tx in self.mempool_txs) / self.mempool_size()
 
     def mempool_size(self):
+        # Condtionalize based on steady state mode or boot up mode
+        if (self.operation_mode == OperationMode.BOOT_UP):
+            return self.boot_up_mempool_size
+
         return len(self.mempool_txs)
 
     def average_tx_size(self):
-        return sum(tx['size'] for tx in self.mempool_txs) / len(self.mempool_txs)
+        return sum(tx['size'] for tx in self.mempool_txs) / self.mempool_size()
 
     def evict_cache(self, txId):
         self.mempool_txs = list(
-            filter(lambda tx: tx['txId'] != txId, self.mempool_txs))
+            filter(lambda tx: tx['txid'] != txId, self.mempool_txs))
 
     def add_tx(self, serialized_tx):
         try:
@@ -94,19 +106,22 @@ class ZMQHandler():
                     'averagemempoolfee': self.average_fee(),
                     'averagemempoolfeerate': self.average_fee_rate(),
                     'averagemempooltxsize': self.average_tx_size(),
+                    'recommendedfeerates': self.mempool_state.fee_service.rates
                 }, **serialized_tx})
             print(tx)
+
+            self.logging.info(
+                '[ZMQ]: persisting tx %s', tx)
             self.rocks.write_mempool_tx(tx)
 
             # Do we need to update our cache
-            if (not self.is_in_cache(serialized_tx['txId'])):
-                self.mempool_txs.append(serialized_tx)
+            if (not self.is_in_cache(serialized_tx['txid'])):
+                self.mempool_txs.append(tx)
 
         except Exception as e:
             self.logging.error(
-                '[Mempool Entries]: Failed to decode and persist tx ')
-
-            self.logging.error(e)
+                '[ZMQ]: Failed to decode and persist tx %s' % e)
+            sys.exit(1)
             return
 
     def getInputValue(self, txid, vout):
@@ -160,9 +175,20 @@ class ZMQHandler():
                     self.evict_cache(txId)
         asyncio.ensure_future(self.handle())
 
+    def populate_cache(self):
+        txs = self.rpc_connection.getrawmempool()
+        self.boot_up_mempool_size = len(txs)
+        for tx in txs:
+            serialized_tx = self.rpc_connection.decoderawtransaction(
+                self.rpc_connection.getrawtransaction(tx))
+
+            self.add_tx(serialized_tx)
+
     def start(self):
-        self.loop.create_task(self.handle())
-        self.loop.run_forever()
+        # TODO should read from mempool and populate cache frist
+        self.populate_cache()
+        # self.loop.create_task(self.handle())
+        # self.loop.run_forever()
 
     def stop(self):
         self.loop.stop()
