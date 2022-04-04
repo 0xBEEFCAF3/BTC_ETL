@@ -10,7 +10,7 @@ import struct
 import sys
 import os
 from bitcoinrpc.authproxy import AuthServiceProxy, JSONRPCException
-from mempoolState import BLOCK_RESOURCE
+from enum import Enum
 
 SATS_PER_BTC = 100000000
 
@@ -60,21 +60,30 @@ class ZMQHandler():
                     'feerate': float(fee_rate),
                     'fee': float(fees),
                     'mempooldate': int(time.time()),
-                    'mempoolgrowthrate': self.mempool_state.state[BLOCK_RESOURCE.MEMPOOL_GROWTH_RATE.name],
-                    'networkdifficulty': self.mempool_state.state[BLOCK_RESOURCE.NETWORK_DIFFICULTY.name],
-                    'averageconfirmationtime': self.mempool_state.state[BLOCK_RESOURCE.AVERAGE_CONFIRMATION_TIME.name],
-                    'mempoolsize': self.mempool_state.state[BLOCK_RESOURCE.MEMPOOL_SIZE.name],
-                    'minerrevenue': self.mempool_state.state[BLOCK_RESOURCE.MINER_REVENUE.name],
-                    'totalhashrate': self.mempool_state.state[BLOCK_RESOURCE.TOTAL_HASH_RATE.name],
-                    'marketprice': self.mempool_state.state[BLOCK_RESOURCE.MARKET_PRICE.name],
-                    'dayofweek': self.mempool_state.state[BLOCK_RESOURCE.DAY_OF_WEEK.name],
-                    'hourofday': self.mempool_state.state[BLOCK_RESOURCE.HOUR_OF_DAY.name]
+                    'mempoolgrowthrate': self.mempool_state.mempool_growth_rate_service.growth_rate,
+                    'networkdifficulty': self.mempool_state.network_difficulty.network_difficulty,
+                    'averageconfirmationtime': self.mempool_state.average_confirmation_time_service.average_confirmation_time,
+                    'mempoolsize': self.mempool_state.mempool_size_service.mempool_size,
+                    'minerrevenue': self.mempool_state.miner_revenue_service.miner_revenue,
+                    'totalhashrate': self.mempool_state.total_hash_rate_service.total_hash_rate,
+                    'marketprice': self.mempool_state.market_price_service.market_price,
+                    'dayofweek': self.mempool_state.date_service.day_of_week,
+                    'hourofday': self.mempool_state.date_service.hour_of_day,
+                    'monthofyear': self.mempool_state.date_service.month_of_year,
+                    'averagemempoolfee': self.mempool_state.mempool_fee_service.average_fee,
+                    'averagemempoolfeerate': self.mempool_state.mempool_fee_service.average_fee_rate,
+                    'averagemempooltxsize': self.mempool_state.mempool_size_service.average_mempool_tx_size,
+                    'recommendedfeerates': self.mempool_state.fee_service.rates
                 }, **serialized_tx})
-            print(tx)
+
+            self.logging.info(
+                '[ZMQ]: persisting tx %s', tx)
             self.rocks.write_mempool_tx(tx)
-        except:
+
+        except Exception as e:
             self.logging.error(
-                '[Mempool Entries]: Failed to decode and persist tx ')
+                '[ZMQ]: Failed to decode and persist tx %s' % e)
+            sys.exit(1)
             return
 
     def getInputValue(self, txid, vout):
@@ -101,15 +110,13 @@ class ZMQHandler():
         self.logging.info('[ZMQ]: Starting to handel zmq topics')
         topic, body, seq = await self.zmqSubSocket.recv_multipart()
         self.logging.info('[ZMQ]: Body %s %s' % (topic, seq))
-        sequence = "Unknown"
-        if len(seq) == 4:
-            sequence = str(struct.unpack('<I', seq)[-1])
         if topic == b"rawtx":
             # Tx entering mempool
             try:
                 self.logging.info('[ZMQ]: Recieved Raw TX')
                 serialized_tx = self.rpc_connection.decoderawtransaction(
                     binascii.hexlify(body).decode("utf-8"))
+                # TODO use class cache for this check
                 existing_tx = self.rocks.get_tx(serialized_tx['txid'])
                 if existing_tx == None:
                     self.add_tx(serialized_tx)
@@ -117,11 +124,14 @@ class ZMQHandler():
                 self.logging.info('[ZMQ]: Failed to write mempool entry')
                 self.logging.info(e)
         if topic == b"hashblock":
+            self.logging.info('[ZMQ]: Recieved hash block event')
             block_hash = binascii.hexlify(body).decode("utf-8")
             block = self.rpc_connection.getblock(block_hash)
             # Skip coin base tx
-            for tx in block['tx'][1:]:
-                self.rocks.update_tx_conf_time(tx, int(time.time()))
+            for txId in block['tx'][1:]:
+                self.logging.info('[ZMQ]: Updating conf time for %s' % txId)
+
+                self.rocks.update_tx_conf_time(txId, int(time.time()))
         asyncio.ensure_future(self.handle())
 
     def start(self):
