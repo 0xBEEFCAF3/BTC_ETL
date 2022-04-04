@@ -21,7 +21,6 @@ if __name__ == "__main__":
 
     mempoolState = MempoolState(logging)
     zeroMQ = ZMQHandler(logging, rocks, mempoolState)
-
     # Set up threads
 
     thread_pool.append(threading.Thread(target=mempoolState.start))

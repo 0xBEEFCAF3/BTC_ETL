@@ -15,11 +15,6 @@ from enum import Enum
 SATS_PER_BTC = 100000000
 
 
-class OperationMode(Enum):
-    BOOT_UP = 1,
-    STEAD_STATE = 2
-
-
 class ZMQHandler():
     def __init__(self, logging, rocks, mempool_state):
         if ('RPC_USER' not in os.environ
@@ -47,34 +42,6 @@ class ZMQHandler():
         self.rocks = rocks
         self.mempool_state = mempool_state
 
-        # Keep a cache of txs entering and leaving the mempool for providing mempool stats
-        self.mempool_txs = []
-
-        self.operation_mode = OperationMode.BOOT_UP
-
-    def is_in_cache(self, txId):
-        return len(list(filter(lambda tx: tx['txid'] == txId, self.mempool_txs))) > 0
-
-    def average_fee(self):
-        return sum(tx['fee'] for tx in self.mempool_txs) / self.mempool_size()
-
-    def average_fee_rate(self):
-        return sum(tx['feerate'] for tx in self.mempool_txs) / self.mempool_size()
-
-    def mempool_size(self):
-        # Condtionalize based on steady state mode or boot up mode
-        if (self.operation_mode == OperationMode.BOOT_UP):
-            return self.boot_up_mempool_size
-
-        return len(self.mempool_txs)
-
-    def average_tx_size(self):
-        return sum(tx['size'] for tx in self.mempool_txs) / self.mempool_size()
-
-    def evict_cache(self, txId):
-        self.mempool_txs = list(
-            filter(lambda tx: tx['txid'] != txId, self.mempool_txs))
-
     def add_tx(self, serialized_tx):
         try:
             # Skip coin base tx
@@ -96,27 +63,22 @@ class ZMQHandler():
                     'mempoolgrowthrate': self.mempool_state.mempool_growth_rate_service.growth_rate,
                     'networkdifficulty': self.mempool_state.network_difficulty.network_difficulty,
                     'averageconfirmationtime': self.mempool_state.average_confirmation_time_service.average_confirmation_time,
-                    'mempoolsize': self.mempool_size(),
+                    'mempoolsize': self.mempool_state.mempool_size_service.mempool_size,
                     'minerrevenue': self.mempool_state.miner_revenue_service.miner_revenue,
                     'totalhashrate': self.mempool_state.total_hash_rate_service.total_hash_rate,
                     'marketprice': self.mempool_state.market_price_service.market_price,
                     'dayofweek': self.mempool_state.date_service.day_of_week,
                     'hourofday': self.mempool_state.date_service.hour_of_day,
                     'monthofyear': self.mempool_state.date_service.month_of_year,
-                    'averagemempoolfee': self.average_fee(),
-                    'averagemempoolfeerate': self.average_fee_rate(),
-                    'averagemempooltxsize': self.average_tx_size(),
+                    'averagemempoolfee': self.mempool_state.mempool_fee_service.average_fee,
+                    'averagemempoolfeerate': self.mempool_state.mempool_fee_service.average_fee_rate,
+                    'averagemempooltxsize': self.mempool_state.mempool_size_service.average_mempool_tx_size,
                     'recommendedfeerates': self.mempool_state.fee_service.rates
                 }, **serialized_tx})
-            print(tx)
 
             self.logging.info(
                 '[ZMQ]: persisting tx %s', tx)
             self.rocks.write_mempool_tx(tx)
-
-            # Do we need to update our cache
-            if (not self.is_in_cache(serialized_tx['txid'])):
-                self.mempool_txs.append(tx)
 
         except Exception as e:
             self.logging.error(
@@ -148,9 +110,6 @@ class ZMQHandler():
         self.logging.info('[ZMQ]: Starting to handel zmq topics')
         topic, body, seq = await self.zmqSubSocket.recv_multipart()
         self.logging.info('[ZMQ]: Body %s %s' % (topic, seq))
-        sequence = "Unknown"
-        if len(seq) == 4:
-            sequence = str(struct.unpack('<I', seq)[-1])
         if topic == b"rawtx":
             # Tx entering mempool
             try:
@@ -165,30 +124,19 @@ class ZMQHandler():
                 self.logging.info('[ZMQ]: Failed to write mempool entry')
                 self.logging.info(e)
         if topic == b"hashblock":
+            self.logging.info('[ZMQ]: Recieved hash block event')
             block_hash = binascii.hexlify(body).decode("utf-8")
             block = self.rpc_connection.getblock(block_hash)
             # Skip coin base tx
             for txId in block['tx'][1:]:
+                self.logging.info('[ZMQ]: Updating conf time for %s' % txId)
+
                 self.rocks.update_tx_conf_time(txId, int(time.time()))
-                # Drop from local cache
-                if (self.is_in_cache(txId)):
-                    self.evict_cache(txId)
         asyncio.ensure_future(self.handle())
 
-    def populate_cache(self):
-        txs = self.rpc_connection.getrawmempool()
-        self.boot_up_mempool_size = len(txs)
-        for tx in txs:
-            serialized_tx = self.rpc_connection.decoderawtransaction(
-                self.rpc_connection.getrawtransaction(tx))
-
-            self.add_tx(serialized_tx)
-
     def start(self):
-        # TODO should read from mempool and populate cache frist
-        self.populate_cache()
-        # self.loop.create_task(self.handle())
-        # self.loop.run_forever()
+        self.loop.create_task(self.handle())
+        self.loop.run_forever()
 
     def stop(self):
         self.loop.stop()

@@ -6,6 +6,8 @@ import datetime as dt
 from enum import Enum
 from bitcoinrpc.authproxy import AuthServiceProxy, JSONRPCException
 
+SATS_PER_BTC = 100000000
+
 
 class MarketPriceService():
     resource_url = 'https://casa-crypto-price-service-staging.s3.amazonaws.com/v1/crypto-price-service.json'
@@ -125,6 +127,39 @@ class BlockStatsService():
         self.total_fee = stats['totalfee']
 
 
+class MempoolSizeService():
+    def __init__(self, rpc_connection):
+        self.rpc_connection = rpc_connection
+        self.update()
+
+    def update(self):
+        mempool_info = self.rpc_connection.getmempoolinfo()
+        # Current tx count
+        self.mempool_size = mempool_info['size']
+        # Sum of all virtual transaction sizes as defined in BIP 141. Differs from actual serialized size because witness data is discounted
+        self.average_mempool_tx_size = mempool_info['bytes'] / \
+            mempool_info['size']
+
+
+class MempoolFeeInfoService():
+    def __init__(self, rpc_connection):
+        self.rpc_connection = rpc_connection
+        self.update()
+
+    def update(self):
+        mempool = self.rpc_connection.getrawmempool(True)
+        running_fee = 0
+        running_fee_rate = 0
+
+        for txId in mempool:
+            fee = mempool[txId]['fee'] * SATS_PER_BTC
+            running_fee += fee
+            running_fee_rate += fee / mempool[txId]['vsize']
+
+        self.average_fee = running_fee / len(mempool)
+        self.average_fee_rate = running_fee_rate / len(mempool)
+
+
 class FeeService():
     resource_url = 'https://bitcoiner.live/api/fees/estimates/latest'
 
@@ -172,27 +207,31 @@ class MempoolState():
         self.miner_revenue_service = MinerRevenueService()
         self.total_hash_rate_service = TotalHashRateService()
         self.market_price_service = MarketPriceService()
+        self.mempool_size_service = MempoolSizeService(self.rpc_connection)
+        self.mempool_fee_service = MempoolFeeInfoService(self.rpc_connection)
 
         self.resources = [self.block_stats_service, self.network_difficulty, self.date_service, self.fee_service, self.median_confirmation_time_service,
-                          self.average_confirmation_time_service, self.mempool_growth_rate_service, self.miner_revenue_service, self.total_hash_rate_service, self.market_price_service]
+                          self.average_confirmation_time_service, self.mempool_growth_rate_service, self.miner_revenue_service, self.total_hash_rate_service, self.market_price_service, self.mempool_size_service, self.mempool_fee_service]
 
         self.loop = asyncio.get_event_loop()
 
     def get_resources(self):
+        self.logging.info('[Mempool State]: Updating resources')
         for resource in self.resources:
             resource.update()
+
+        self.logging.info('[Mempool State]: Done update resources')
 
     async def handle(self):
         self.logging.info('[Mempool State]: Starting gather mempool status')
         self.get_resources()
-        self.logging.info(
-            '[Mempool State]: Current mempool state ' + json.dumps(self.state))
-        await asyncio.sleep(10)
+        await asyncio.sleep(20)
         asyncio.ensure_future(self.handle())
 
     def start(self):
-        print('Starting event loop')
-        # self.loop.create_task(self.handle())
+        self.logging.info('[Mempool State]: Starting event loop')
+        self.loop.create_task(self.handle())
+        self.loop.run_forever()
 
     def stop(self):
         self.loop.stop()
