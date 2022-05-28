@@ -160,6 +160,9 @@ class MempoolFeeInfoService():
         self.average_fee_rate = running_fee_rate / len(mempool)
 
 
+
+
+
 class FeeService():
     resource_url = 'https://bitcoiner.live/api/fees/estimates/latest'
 
@@ -225,7 +228,7 @@ class MempoolState():
     async def handle(self):
         self.logging.info('[Mempool State]: Starting gather mempool status')
         self.get_resources()
-        await asyncio.sleep(20)
+        await asyncio.sleep(10)
         asyncio.ensure_future(self.handle())
 
     def start(self):

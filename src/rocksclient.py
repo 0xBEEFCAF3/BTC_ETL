@@ -3,6 +3,7 @@ import rocksdb
 import threading
 import decimal
 
+
 class MergeOp(rocksdb.interfaces.AssociativeMergeOperator):
     def merge(self, key, existing_tx, conf_ts):
         if existing_tx != None:
@@ -16,11 +17,13 @@ class MergeOp(rocksdb.interfaces.AssociativeMergeOperator):
     def name(self):
         return b'MergeOp'
 
+
 class DecimalEncoder(json.JSONEncoder):
     def default(self, o):
         if isinstance(o, decimal.Decimal):
             return str(o)
         return super(DecimalEncoder, self).default(o)
+
 
 class RocksDBClient():
     def __init__(self, lock, logging):
@@ -37,24 +40,24 @@ class RocksDBClient():
             block_cache=rocksdb.LRUCache(2 * (1024 ** 3)),
             block_cache_compressed=rocksdb.LRUCache(500 * (1024 ** 2)))
 
-        self.db =  rocksdb.DB("test.db", opts)
+        self.db = rocksdb.DB("test.db", opts)
         self.lock = lock
         self.logging = logging
-        
+
     def get_tx(self, txid):
         tx = None
-        self.lock.acquire() 
+        self.lock.acquire()
         try:
             tx = self.db.get(bytes(txid, encoding='utf-8'))
         except Exception as e:
             self.logging.info('[rocks]: Failed to get tx')
             self.logging.info(e)
         finally:
-           self.lock.release() 
+            self.lock.release()
         return tx
-    
+
     def write_mempool_tx(self, tx):
-        self.lock.acquire() 
+        self.lock.acquire()
         try:
             self.db.put(
                 bytes(tx['txid'], encoding='utf-8'),
@@ -63,10 +66,10 @@ class RocksDBClient():
             self.logging.info('[rocks]: Create mempool entry')
             self.logging.info(e)
         finally:
-           self.lock.release() 
+            self.lock.release()
 
     def update_tx_conf_time(self, txid, conf_ts):
-        self.lock.acquire() 
+        self.lock.acquire()
         try:
             tx = json.loads(self.db.get(bytes(txid, encoding='utf-8')))
             if tx == None or 'conf' in tx:
@@ -74,26 +77,26 @@ class RocksDBClient():
             tx['conf'] = conf_ts
             self.db.put(
                 bytes(txid, encoding='utf-8'),
-                bytes(json.dumps(tx, cls=DecimalEncoder), encoding='utf-8')) 
+                bytes(json.dumps(tx, cls=DecimalEncoder), encoding='utf-8'))
         except Exception as e:
             self.logging.info('[rocks]: Could not perform merge')
             self.logging.info(e)
         finally:
             self.lock.release()
 
-    ## TODO DELETE THESE DEBUGGIN FUNCTIONS
+    # TODO DELETE THESE DEBUGGIN FUNCTIONS
 
     def print_all_keys(self):
         it = self.db.iterkeys()
         it.seek_to_first()
-        txs = list(it) 
+        txs = list(it)
         print(self.db.get(txs[0]))
         # print(  txs)
 
     def get_all_conf_keys(self):
         it = self.db.iterkeys()
         it.seek_to_first()
-        txs = list(it) 
+        txs = list(it)
         print(len(txs))
         # for txid in txs:
         #     tx = json.loads(self.db.get(txid))

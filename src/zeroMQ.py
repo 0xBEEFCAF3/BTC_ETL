@@ -120,6 +120,12 @@ class ZMQHandler():
                 existing_tx = self.rocks.get_tx(serialized_tx['txid'])
                 if existing_tx == None:
                     self.add_tx(serialized_tx)
+                else:
+                    self.logging.info(
+                        '[ZMQ]: Updating conf time for %s' % serialized_tx['txid'])
+                    self.rocks.update_tx_conf_time(
+                        serialized_tx['txid'], int(time.time()))
+
             except Exception as e:
                 self.logging.info('[ZMQ]: Failed to write mempool entry')
                 self.logging.info(e)
