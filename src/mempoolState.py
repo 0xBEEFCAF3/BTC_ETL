@@ -1,12 +1,18 @@
 import asyncio
+import math
 import requests
 import os
 import json
 import datetime as dt
 from enum import Enum
+import time
 from bitcoinrpc.authproxy import AuthServiceProxy, JSONRPCException
 
 SATS_PER_BTC = 100000000
+
+
+# Seconds
+GET_RESOURCES_TIMER = 60
 
 
 class MarketPriceService():
@@ -87,6 +93,48 @@ class MedianConfirmationService():
         return self.median_confirmation_time
 
 
+class ConfTimePerFeeRate():
+    # UPDATE_THRESHOLD = 1800  # Seconds
+
+    def __init__(self):
+        self.last_updated_at = None
+        self.conf_times_per_fee_bucket = {}
+        self.update()
+
+    def update_conf_times_per_fee(self, rate, time_to_conf):
+        if rate in self.conf_times_per_fee_bucket:
+            self.conf_times_per_fee_bucket[rate].append(time_to_conf)
+        else:
+            self.conf_times_per_fee_bucket[rate] = [time_to_conf]
+
+    def update(self):
+        current_time = int(time.time())
+        if self.last_updated_at == None or abs(current_time - self.last_updated_at) < UPDATE_THRESHOLD:
+            print('DEBUG not updating conf time fee buckets')
+            return
+        self.last_updated_at = current_time
+        self.conf_times_per_fee_bucket = {}
+
+
+class FeeBucketsService():
+    resource_url = 'https://api.blockchain.info/charts/mempool-state-by-fee-level/interval?cors=true'
+
+    def __init__(self):
+        self.update()
+
+    def update(self):
+        # Most current bucket fees is at the end of the list
+        # Rates are structured as the following: [feePerByte, Total bytes of txs in mempool paying this rate, Total # of txs in memepool paying this rate]
+        rates = requests.get(self.resource_url).json()['interval'][-1]['rates']
+        print(rates)
+        self.fee_buckets = {}
+        for rate in rates:
+            self.fee_buckets[rate[0]] = {
+                'totalbytes': rate[1], 'totaltxs': rate[2]}
+
+        return self.fee_buckets
+
+
 class NetworkDifficultyService():
     def __init__(self, rpc_connection):
         self.rpc_connection = rpc_connection
@@ -137,8 +185,11 @@ class MempoolSizeService():
         # Current tx count
         self.mempool_size = mempool_info['size']
         # Sum of all virtual transaction sizes as defined in BIP 141. Differs from actual serialized size because witness data is discounted
-        self.average_mempool_tx_size = mempool_info['bytes'] / \
-            mempool_info['size']
+        if mempool_info['size'] > 0:
+            self.average_mempool_tx_size = mempool_info['bytes'] / \
+                mempool_info['size']
+        else:
+            self.average_mempool_tx_size = 0
 
 
 class MempoolFeeInfoService():
@@ -155,12 +206,12 @@ class MempoolFeeInfoService():
             fee = mempool[txId]['fee'] * SATS_PER_BTC
             running_fee += fee
             running_fee_rate += fee / mempool[txId]['vsize']
-
-        self.average_fee = running_fee / len(mempool)
-        self.average_fee_rate = running_fee_rate / len(mempool)
-
-
-
+        if len(mempool) > 0:
+            self.average_fee = running_fee / len(mempool)
+            self.average_fee_rate = running_fee_rate / len(mempool)
+        else:
+            self.average_fee = 0
+            self.average_fee_rate = 0
 
 
 class FeeService():
@@ -212,9 +263,12 @@ class MempoolState():
         self.market_price_service = MarketPriceService()
         self.mempool_size_service = MempoolSizeService(self.rpc_connection)
         self.mempool_fee_service = MempoolFeeInfoService(self.rpc_connection)
+        self.fee_bucket_service = FeeBucketsService()
+        self.conf_time_per_fee_rate_service = ConfTimePerFeeRate()
 
         self.resources = [self.block_stats_service, self.network_difficulty, self.date_service, self.fee_service, self.median_confirmation_time_service,
-                          self.average_confirmation_time_service, self.mempool_growth_rate_service, self.miner_revenue_service, self.total_hash_rate_service, self.market_price_service, self.mempool_size_service, self.mempool_fee_service]
+                          self.average_confirmation_time_service, self.mempool_growth_rate_service, self.miner_revenue_service, self.total_hash_rate_service,
+                          self.market_price_service, self.mempool_size_service, self.mempool_fee_service, self.fee_bucket_service, self.conf_time_per_fee_rate_service]
 
         self.loop = asyncio.get_event_loop()
 
@@ -228,7 +282,7 @@ class MempoolState():
     async def handle(self):
         self.logging.info('[Mempool State]: Starting gather mempool status')
         self.get_resources()
-        await asyncio.sleep(10)
+        await asyncio.sleep(GET_RESOURCES_TIMER)
         asyncio.ensure_future(self.handle())
 
     def start(self):

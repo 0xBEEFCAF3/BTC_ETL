@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 
 import time
+import json
 import binascii
 import asyncio
 import zmq
 import zmq.asyncio
 import signal
+import math
 import struct
 import sys
 import os
@@ -64,6 +66,7 @@ class ZMQHandler():
                     'networkdifficulty': self.mempool_state.network_difficulty.network_difficulty,
                     'averageconfirmationtime': self.mempool_state.average_confirmation_time_service.average_confirmation_time,
                     'mempoolsize': self.mempool_state.mempool_size_service.mempool_size,
+                    # TODO  'feeRateBuckets': self.mempool_state.fee_bucket_service.fee_buckets,
                     'minerrevenue': self.mempool_state.miner_revenue_service.miner_revenue,
                     'totalhashrate': self.mempool_state.total_hash_rate_service.total_hash_rate,
                     'marketprice': self.mempool_state.market_price_service.market_price,
@@ -103,7 +106,8 @@ class ZMQHandler():
         [input_value := input_value +
             self.getInputValue(vin['txid'], vin['vout']) for vin in tx['vin']]
 
-        assert(input_value > output_value)
+        # Or equal case added, b/c some tx are not going to spend any funds
+        # assert(input_value >= output_value)
         return float((input_value - output_value) * SATS_PER_BTC)
 
     async def handle(self):
@@ -121,23 +125,21 @@ class ZMQHandler():
                 if existing_tx == None:
                     self.add_tx(serialized_tx)
                 else:
+                    existing_tx = json.loads(existing_tx)
                     self.logging.info(
                         '[ZMQ]: Updating conf time for %s' % serialized_tx['txid'])
+                    conf_time = int(time.time())
+                    time_to_conf_time = conf_time - existing_tx['mempooldate']
+                    fee_rate = math.floor(existing_tx['feerate'])
+                    self.mempool_state.conf_time_per_fee_rate_service.update_conf_times_per_fee(
+                        fee_rate, time_to_conf_time)
                     self.rocks.update_tx_conf_time(
-                        serialized_tx['txid'], int(time.time()))
+                        serialized_tx['txid'], conf_time, self.mempool_state.conf_time_per_fee_rate_service.conf_times_per_fee_bucket)
 
             except Exception as e:
                 self.logging.info('[ZMQ]: Failed to write mempool entry')
                 self.logging.info(e)
-        if topic == b"hashblock":
-            self.logging.info('[ZMQ]: Recieved hash block event')
-            block_hash = binascii.hexlify(body).decode("utf-8")
-            block = self.rpc_connection.getblock(block_hash)
-            # Skip coin base tx
-            for txId in block['tx'][1:]:
-                self.logging.info('[ZMQ]: Updating conf time for %s' % txId)
 
-                self.rocks.update_tx_conf_time(txId, int(time.time()))
         asyncio.ensure_future(self.handle())
 
     def start(self):

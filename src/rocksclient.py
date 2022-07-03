@@ -68,13 +68,16 @@ class RocksDBClient():
         finally:
             self.lock.release()
 
-    def update_tx_conf_time(self, txid, conf_ts):
+    def update_tx_conf_time(self, txid, conf_ts, conf_per_fee_rate):
         self.lock.acquire()
         try:
             tx = json.loads(self.db.get(bytes(txid, encoding='utf-8')))
             if tx == None or 'conf' in tx:
+                self.logging.info(
+                    '[rocks]: Tx not valid. Aborting addding conf time')
                 return
             tx['conf'] = conf_ts
+            tx['confperfeerate'] = conf_per_fee_rate
             self.db.put(
                 bytes(txid, encoding='utf-8'),
                 bytes(json.dumps(tx, cls=DecimalEncoder), encoding='utf-8'))
